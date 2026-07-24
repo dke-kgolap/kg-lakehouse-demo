@@ -1,0 +1,19 @@
+groups:
+  - name: lakehouse_aggregations
+    interval: 15s
+    rules:
+      # Ingestion queue depth: the Kafka consumer's record lag, summed across
+      # partitions, scoped to the ingestion-tasks topic.
+      - record: lakehouse_ingestion_queue_depth
+        expr: |
+          sum by (group) (
+            kafka_consumer_fetch_manager_records_lag{topic="lakehouse.ingestion.tasks"}
+          )
+
+      # Query cache hit ratio over a 5-minute window. With no traffic the ratio
+      # is a gap rather than 0, so an idle system does not read as "0% hits".
+      - record: lakehouse_query_cache_hit_ratio
+        expr: |
+          sum(rate(lakehouse_query_cache_hit_total{result="hit"}[5m]))
+          /
+          clamp_min(sum(rate(lakehouse_query_cache_hit_total[5m])), 1)

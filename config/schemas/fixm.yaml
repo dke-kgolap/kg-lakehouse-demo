@@ -1,0 +1,62 @@
+schema:
+  id: fixm
+  dimensions:
+    time:
+      levels:
+        - name: year
+          depth: 0
+          rollup_to: null
+          rollup_function: null
+        - name: month
+          depth: 1
+          rollup_to: year
+          rollup_function: "builtin:date_to_year"
+        - name: day
+          depth: 2
+          rollup_to: month
+          rollup_function: "builtin:date_to_month"
+
+    location:
+      levels:
+        - name: territory
+          depth: 0
+          rollup_to: null
+          rollup_function: null
+        - name: fir
+          depth: 1
+          rollup_to: territory
+          rollup_function: "lookup"
+        - name: location
+          depth: 2
+          rollup_to: fir
+          rollup_function: "lookup"
+
+    topic:
+      levels:
+        - name: category
+          depth: 0
+          rollup_to: null
+          rollup_function: null
+        - name: family
+          depth: 1
+          rollup_to: category
+          rollup_function: "lookup"
+        - name: feature
+          depth: 2
+          rollup_to: family
+          rollup_function: "lookup"
+
+  hierarchies:
+    location:
+      # >>> BEGIN generated-location-hierarchy <<<
+      - { territory: Austria, fir: LOVV, location: LOWW }
+      - { territory: Austria, fir: LOVV, location: LOWS }
+      - { territory: Germany, fir: EDMM, location: EDJA }
+      - { territory: Germany, fir: EDGG, location: EDDF }
+      - { territory: France,  fir: LFBB, location: LFBD }
+      - { territory: France,  fir: LFMM, location: LFMA }
+      # >>> END generated-location-hierarchy <<<
+    topic:
+      - { category: Flights, family: Flight,     feature: Flight }
+      # Reserved for future trajectory engine; FixmAnalyzer indexes all flights as Flight for now.
+      - { category: Flights, family: Trajectory, feature: RouteTrajectoryElement }

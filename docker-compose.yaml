@@ -1,0 +1,370 @@
+name: lakehouse
+
+# Local, single-machine deployment of the full lakehouse stack using the
+# published release images (basharahmad/lakehouse-*:1.0.4). Bring everything up
+# with:  docker compose up -d --wait
+#
+# Supporting configuration (cube schemas, Prometheus/Loki/Tempo/Promtail, and the
+# Grafana data sources) ships alongside this file under ./config and is mounted
+# into the relevant containers.
+
+services:
+  # ── Infrastructure ───────────────────────────────────────────────────────
+
+  cassandra:
+    image: cassandra:4.1
+    container_name: lakehouse-cassandra
+    ports:
+      - "9042:9042"
+    environment:
+      CASSANDRA_CLUSTER_NAME: lakehouse
+      MAX_HEAP_SIZE: "1G"
+      HEAP_NEWSIZE: "200M"
+    volumes:
+      - cassandra-data:/var/lib/cassandra
+    healthcheck:
+      test: ["CMD-SHELL", "cqlsh -e 'DESCRIBE KEYSPACES' >/dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 60s
+    networks: [lakehouse-net]
+
+  kafka:
+    image: apache/kafka:3.7.0
+    container_name: lakehouse-kafka
+    ports:
+      - "9092:9092"
+      - "9094:9094"
+    environment:
+      KAFKA_NODE_ID: "0"
+      KAFKA_PROCESS_ROLES: "controller,broker"
+      KAFKA_LISTENERS: "PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:9094"
+      # PLAINTEXT is the in-cluster listener: other containers reach the broker
+      # as kafka:9092 over the compose network. EXTERNAL is for host clients via
+      # the published 9094 port.
+      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka:9092,EXTERNAL://localhost:9094"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT"
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "0@kafka:9093"
+      KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+      KAFKA_INTER_BROKER_LISTENER_NAME: "PLAINTEXT"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "1"
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: "0"
+      CLUSTER_ID: "lakehouse-kraft-cluster"
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list >/dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 12
+      start_period: 30s
+    networks: [lakehouse-net]
+
+  redis:
+    image: redis:7-alpine
+    container_name: lakehouse-redis
+    expose:
+      - "6379"
+    command: redis-server --appendonly yes --protected-mode no --maxmemory 800mb --maxmemory-policy noeviction
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+    networks: [lakehouse-net]
+
+  minio:
+    image: minio/minio:RELEASE.2024-03-30T09-41-56Z
+    container_name: lakehouse-minio
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 15s
+      timeout: 10s
+      retries: 6
+    networks: [lakehouse-net]
+
+  # ── Observability ────────────────────────────────────────────────────────
+
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    container_name: lakehouse-prometheus
+    ports:
+      - "9099:9090"
+    volumes:
+      - ./config/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./config/monitoring/recording_rules.yml:/etc/prometheus/recording_rules.yml:ro
+      - prometheus-data:/prometheus
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:9090/-/ready"]
+      interval: 15s
+      timeout: 10s
+      retries: 6
+    networks: [lakehouse-net]
+
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.58.0
+    container_name: lakehouse-redis-exporter
+    environment:
+      REDIS_ADDR: redis://redis:6379
+    ports:
+      - "9121:9121"
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks: [lakehouse-net]
+
+  promtail:
+    image: grafana/promtail:2.9.4
+    container_name: lakehouse-promtail
+    volumes:
+      - ./config/monitoring/promtail.yaml:/etc/promtail/config.yaml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    command: -config.file=/etc/promtail/config.yaml
+    depends_on:
+      loki:
+        condition: service_healthy
+    networks: [lakehouse-net]
+
+  grafana:
+    image: grafana/grafana:10.4.1
+    container_name: lakehouse-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./config/grafana/provisioning:/etc/grafana/provisioning:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:3000/api/health || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 6
+    networks: [lakehouse-net]
+
+  loki:
+    image: grafana/loki:2.9.4
+    container_name: lakehouse-loki
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./config/monitoring/loki.yaml:/etc/loki/local-config.yaml:ro
+    command: -config.file=/etc/loki/local-config.yaml
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:3100/ready || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 6
+    networks: [lakehouse-net]
+
+  tempo:
+    image: grafana/tempo:2.4.1
+    container_name: lakehouse-tempo
+    ports:
+      - "3200:3200"
+      - "4317:4317"
+      - "4318:4318"
+    command: ["-config.file=/etc/tempo/tempo.yaml"]
+    volumes:
+      - ./config/monitoring/tempo.yaml:/etc/tempo/tempo.yaml:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:3200/ready || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 6
+    networks: [lakehouse-net]
+
+  # ── Application services ──────────────────────────────────────────────────
+
+  surface:
+    image: basharahmad/lakehouse-surface:1.0.4
+    container_name: lakehouse-surface
+    restart: on-failure
+    ports:
+      - "8080:8080"
+    environment:
+      LAKEHOUSE_CASSANDRA_HOST:   cassandra
+      LAKEHOUSE_KAFKA_BOOTSTRAP:  kafka:9092
+      LAKEHOUSE_MINIO_ENDPOINT:   http://minio:9000
+      LAKEHOUSE_STORAGE_KIND:     minio
+      LAKEHOUSE_QUERY_HOST:       query-service
+      LAKEHOUSE_QUERY_HTTP_PORT:  "8081"
+      LAKEHOUSE_SCHEMAS_ROOT:     /app/config/schemas
+      LAKEHOUSE_TRACING_SAMPLE:   "1.0"
+      LAKEHOUSE_OTLP_ENDPOINT:    http://tempo:4318/v1/traces
+    volumes:
+      - ./config/schemas:/app/config/schemas
+    depends_on:
+      cassandra:     { condition: service_healthy }
+      kafka:         { condition: service_healthy }
+      minio:         { condition: service_healthy }
+      query-service: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/actuator/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    deploy:
+      resources:
+        limits: { memory: 2G }
+    networks: [lakehouse-net]
+
+  ingestion-service:
+    image: basharahmad/lakehouse-ingestion-service:1.0.4
+    container_name: lakehouse-ingestion-service
+    restart: on-failure
+    environment:
+      LAKEHOUSE_CASSANDRA_HOST:  cassandra
+      LAKEHOUSE_KAFKA_BOOTSTRAP: kafka:9092
+      LAKEHOUSE_MINIO_ENDPOINT:  http://minio:9000
+      LAKEHOUSE_STORAGE_KIND:    minio
+      LAKEHOUSE_SCHEMAS_ROOT:    /app/config/schemas
+      LAKEHOUSE_TRACING_SAMPLE:  "1.0"
+      LAKEHOUSE_OTLP_ENDPOINT:   http://tempo:4318/v1/traces
+    volumes:
+      - ./config/schemas:/app/config/schemas:ro
+    depends_on:
+      cassandra: { condition: service_healthy }
+      kafka:     { condition: service_healthy }
+      minio:     { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8082/actuator/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    deploy:
+      resources:
+        limits: { memory: 2G }
+    networks: [lakehouse-net]
+
+  query-service:
+    image: basharahmad/lakehouse-query-service:1.0.4
+    container_name: lakehouse-query-service
+    restart: on-failure
+    environment:
+      LAKEHOUSE_CASSANDRA_HOST:  cassandra
+      LAKEHOUSE_REDIS_HOST:      redis
+      LAKEHOUSE_GRAPH_HOST:      graph-service
+      LAKEHOUSE_INFERENCE_HOST:  inference-service
+      LAKEHOUSE_SCHEMAS_ROOT:    /app/config/schemas
+      LAKEHOUSE_TRACING_SAMPLE:  "1.0"
+      LAKEHOUSE_OTLP_ENDPOINT:   http://tempo:4318/v1/traces
+    volumes:
+      - ./config/schemas:/app/config/schemas:ro
+    depends_on:
+      cassandra:         { condition: service_healthy }
+      redis:             { condition: service_healthy }
+      graph-service:     { condition: service_healthy }
+      inference-service: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8081/actuator/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    deploy:
+      resources:
+        limits: { memory: 4G }
+    networks: [lakehouse-net]
+
+  graph-service:
+    image: basharahmad/lakehouse-graph-service:1.0.4
+    container_name: lakehouse-graph-service
+    restart: on-failure
+    environment:
+      LAKEHOUSE_CASSANDRA_HOST:  cassandra
+      LAKEHOUSE_REDIS_HOST:      redis
+      LAKEHOUSE_MINIO_ENDPOINT:  http://minio:9000
+      LAKEHOUSE_STORAGE_KIND:    minio
+      LAKEHOUSE_KAFKA_BOOTSTRAP: kafka:9092
+      LAKEHOUSE_SCHEMAS_ROOT:    /app/config/schemas
+      LAKEHOUSE_TRACING_SAMPLE:  "1.0"
+      LAKEHOUSE_OTLP_ENDPOINT:   http://tempo:4318/v1/traces
+    volumes:
+      - ./config/schemas:/app/config/schemas:ro
+    depends_on:
+      cassandra: { condition: service_healthy }
+      redis:     { condition: service_healthy }
+      minio:     { condition: service_healthy }
+      kafka:     { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8083/actuator/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    deploy:
+      resources:
+        limits: { memory: 4G }
+    networks: [lakehouse-net]
+
+  inference-service:
+    image: basharahmad/lakehouse-inference-service:1.0.4
+    container_name: lakehouse-inference-service
+    restart: on-failure
+    environment:
+      LAKEHOUSE_REDIS_HOST:     redis
+      LAKEHOUSE_SCHEMAS_ROOT:   /app/config/schemas
+      LAKEHOUSE_TRACING_SAMPLE: "1.0"
+      LAKEHOUSE_OTLP_ENDPOINT:  http://tempo:4318/v1/traces
+    volumes:
+      - ./config/schemas:/app/config/schemas:ro
+    depends_on:
+      redis: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8084/actuator/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    deploy:
+      resources:
+        limits: { memory: 2G }
+    networks: [lakehouse-net]
+
+  web:
+    image: basharahmad/lakehouse-web:1.0.4
+    container_name: lakehouse-web
+    restart: on-failure
+    ports:
+      - "3001:3001"          # 3000 is taken by Grafana
+    environment:
+      SURFACE_BASE_URL: http://surface:8080
+      PORT:             "3001"
+    depends_on:
+      surface: { condition: service_healthy }
+    healthcheck:
+      # 127.0.0.1 (not localhost): the server binds IPv4, localhost may resolve to IPv6 ::1.
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3001/api/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    deploy:
+      resources:
+        limits: { memory: 512M }
+    networks: [lakehouse-net]
+
+networks:
+  lakehouse-net:
+    driver: bridge
+
+volumes:
+  cassandra-data:
+  minio-data:
+  prometheus-data:
+  grafana-data:

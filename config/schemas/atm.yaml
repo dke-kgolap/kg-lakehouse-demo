@@ -1,0 +1,101 @@
+schema:
+  id: atm
+  dimensions:
+    time:
+      levels:
+        - name: year
+          depth: 0
+          rollup_to: null
+          rollup_function: null
+        - name: month
+          depth: 1
+          rollup_to: year
+          rollup_function: "builtin:date_to_year"
+        - name: day
+          depth: 2
+          rollup_to: month
+          rollup_function: "builtin:date_to_month"
+
+    location:
+      levels:
+        - name: territory
+          depth: 0
+          rollup_to: null
+          rollup_function: null
+        - name: fir
+          depth: 1
+          rollup_to: territory
+          rollup_function: "lookup"
+        - name: location
+          depth: 2
+          rollup_to: fir
+          rollup_function: "lookup"
+
+    topic:
+      levels:
+        - name: category
+          depth: 0
+          rollup_to: null
+          rollup_function: null
+        - name: family
+          depth: 1
+          rollup_to: category
+          rollup_function: "lookup"
+        - name: feature
+          depth: 2
+          rollup_to: family
+          rollup_function: "lookup"
+
+  hierarchies:
+    location:
+      # >>> BEGIN generated-location-hierarchy <<<
+      - { territory: Austria, fir: LOVV, location: LOWW }
+      - { territory: Austria, fir: LOVV, location: LOWS }
+      - { territory: Germany, fir: EDMM, location: EDJA }
+      - { territory: Germany, fir: EDGG, location: EDDF }
+      - { territory: France,  fir: LFBB, location: LFBD }
+      - { territory: France,  fir: LFMM, location: LFMA }
+      # >>> END generated-location-hierarchy <<<
+    topic:
+      - { category: AirportHeliport, family: AirportHeliport, feature: AirportHeliport }
+      - { category: AirportHeliport, family: Apron,           feature: Apron }
+      - { category: AirportHeliport, family: Apron,           feature: ApronElement }
+      - { category: AirportHeliport, family: Apron,           feature: AircraftStand }
+      - { category: Routes,          family: EnRoute,         feature: RouteSegment }
+      - { category: Routes,          family: FlightRestrictions, feature: FlightRestriction }
+      - { category: Airspace,        family: Airspace,        feature: GeoBorder }
+
+      - { category: AirportHeliport, family: Runway,          feature: Runway }
+      - { category: AirportHeliport, family: Runway,          feature: RunwayDirection }
+      - { category: AirportHeliport, family: Runway,          feature: RunwayCentrelinePoint }
+      - { category: AirportHeliport, family: Runway,          feature: RunwayDirectionLightSystem }
+      - { category: AirportHeliport, family: Runway,          feature: ApproachLightingSystem }
+      - { category: AirportHeliport, family: Runway,          feature: VisualGlideSlopeIndicator }
+      - { category: AirportHeliport, family: Runway,          feature: TouchDownLiftOff }
+
+      - { category: AirportHeliport, family: Taxiway,         feature: Taxiway }
+      - { category: AirportHeliport, family: Taxiway,         feature: GuidanceLine }
+      - { category: AirportHeliport, family: Taxiway,         feature: TaxiHoldingPosition }
+
+      - { category: AirportHeliport, family: Apron,           feature: AeronauticalGroundLight }
+
+      - { category: AirportHeliport, family: Markings,        feature: RunwayMarking }
+      - { category: AirportHeliport, family: Markings,        feature: TaxiHoldingPositionMarking }
+      - { category: AirportHeliport, family: Markings,        feature: GuidanceLineMarking }
+
+      - { category: Routes,          family: EnRoute,         feature: Route }
+      - { category: Routes,          family: EnRoute,         feature: ChangeOverPoint }
+      - { category: Routes,          family: EnRoute,         feature: DesignatedPoint }
+
+      - { category: Airspace,        family: Airspace,        feature: Airspace }
+
+      - { category: Navaid,          family: Navaid,          feature: Navaid }
+      - { category: Navaid,          family: NavaidEquipment, feature: VOR }
+      - { category: Navaid,          family: NavaidEquipment, feature: NDB }
+      - { category: Navaid,          family: NavaidEquipment, feature: DME }
+      - { category: Navaid,          family: NavaidEquipment, feature: TACAN }
+      - { category: Navaid,          family: NavaidEquipment, feature: Glidepath }
+      - { category: Navaid,          family: NavaidEquipment, feature: Localizer }
+      - { category: Navaid,          family: NavaidEquipment, feature: MarkerBeacon }
+
+      - { category: Events,          family: Notam,           feature: Notam }

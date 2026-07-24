@@ -1,0 +1,47 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - recording_rules.yml
+
+scrape_configs:
+  - job_name: surface
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["surface:8080"]
+        labels: { service: surface }
+
+  - job_name: ingestion-service
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["ingestion-service:8082"]
+        labels: { service: ingestion-service }
+
+  - job_name: query-service
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["query-service:8081"]
+        labels: { service: query-service }
+
+  - job_name: graph-service
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["graph-service:8083"]
+        labels: { service: graph-service }
+
+  - job_name: inference-service
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["inference-service:8084"]
+        labels: { service: inference-service }
+
+  # Server-side Redis metrics from the redis-exporter container.
+  - job_name: redis
+    static_configs:
+      - targets: ["redis-exporter:9121"]
+
+  # Self-scrape so dashboards can show Prometheus's own health.
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
