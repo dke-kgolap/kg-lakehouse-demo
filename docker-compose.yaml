@@ -1,13 +1,4 @@
 name: lakehouse
-
-# Local, single-machine deployment of the full lakehouse stack using the
-# published release images (basharahmad/lakehouse-*:1.0.4). Bring everything up
-# with:  docker compose up -d --wait
-#
-# Supporting configuration (cube schemas, Prometheus/Loki/Tempo/Promtail, and the
-# Grafana data sources) ships alongside this file under ./config and is mounted
-# into the relevant containers.
-
 services:
   # ── Infrastructure ───────────────────────────────────────────────────────
 
@@ -40,9 +31,6 @@ services:
       KAFKA_NODE_ID: "0"
       KAFKA_PROCESS_ROLES: "controller,broker"
       KAFKA_LISTENERS: "PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:9094"
-      # PLAINTEXT is the in-cluster listener: other containers reach the broker
-      # as kafka:9092 over the compose network. EXTERNAL is for host clients via
-      # the published 9094 port.
       KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka:9092,EXTERNAL://localhost:9094"
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT"
       KAFKA_CONTROLLER_QUORUM_VOTERS: "0@kafka:9093"
@@ -190,6 +178,7 @@ services:
 
   surface:
     image: basharahmad/lakehouse-surface:1.0.4
+    platform: linux/amd64
     container_name: lakehouse-surface
     restart: on-failure
     ports:
@@ -224,6 +213,7 @@ services:
 
   ingestion-service:
     image: basharahmad/lakehouse-ingestion-service:1.0.4
+    platform: linux/amd64
     container_name: lakehouse-ingestion-service
     restart: on-failure
     environment:
@@ -253,6 +243,7 @@ services:
 
   query-service:
     image: basharahmad/lakehouse-query-service:1.0.4
+    platform: linux/amd64
     container_name: lakehouse-query-service
     restart: on-failure
     environment:
@@ -283,6 +274,7 @@ services:
 
   graph-service:
     image: basharahmad/lakehouse-graph-service:1.0.4
+    platform: linux/amd64
     container_name: lakehouse-graph-service
     restart: on-failure
     environment:
@@ -314,6 +306,7 @@ services:
 
   inference-service:
     image: basharahmad/lakehouse-inference-service:1.0.4
+    platform: linux/amd64
     container_name: lakehouse-inference-service
     restart: on-failure
     environment:
@@ -338,6 +331,7 @@ services:
 
   web:
     image: basharahmad/lakehouse-web:1.0.4
+    platform: linux/amd64
     container_name: lakehouse-web
     restart: on-failure
     ports:
@@ -348,7 +342,6 @@ services:
     depends_on:
       surface: { condition: service_healthy }
     healthcheck:
-      # 127.0.0.1 (not localhost): the server binds IPv4, localhost may resolve to IPv6 ::1.
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3001/api/health || exit 1"]
       interval: 15s
       timeout: 5s

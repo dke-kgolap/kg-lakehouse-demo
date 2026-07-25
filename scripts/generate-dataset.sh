@@ -20,7 +20,7 @@ WORK="$PWD/dataset-work"
 OUT="$PWD/dataset"
 
 mkdir -p "$WORK" "$OUT"
-atm_gen() { docker run --rm -u "$(id -u):$(id -g)" -v "$WORK":/work -v "$OUT":/out "$ATM_GEN_IMAGE" "$@"; }
+atm_gen() { docker run --rm --platform linux/amd64 -u "$(id -u):$(id -g)" -v "$WORK":/work -v "$OUT":/out "$ATM_GEN_IMAGE" "$@"; }
 
 if [[ ! -f "$WORK/seed.yaml" ]]; then
   echo "==> Extracting the airspace seed from the bundled Donlon 2022 reference"

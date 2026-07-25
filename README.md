@@ -12,8 +12,11 @@ Everything runs from published container images; nothing is built locally.
 
 ## Prerequisites
 
-- Docker with the Compose plugin (the images are built for linux/amd64; on
-  other architectures they run under emulation, more slowly)
+- Docker with the Compose plugin. The application images are built for
+  linux/amd64 and are pinned to that platform in `docker-compose.yaml`; on
+  Apple Silicon they run under emulation (enable *Rosetta for x86_64/amd64
+  emulation* in Docker Desktop settings for the best performance), while the
+  infrastructure images (Cassandra, Kafka, and the rest) run natively.
 - about 8 GB of free memory and 5 GB of disk
 - `curl` and `python3` (used by the ingestion script)
 - free local ports 3001 (console), 8080 (API), 3000 (Grafana), 9042, 9092,
@@ -65,6 +68,21 @@ in total: 175 for `atm`, 126 for `meteo`, and 42 for `fixm`.
 
 Open <http://localhost:3001> and sign in with user `admin`, password
 `admin`.
+
+### Default credentials
+
+| Interface | Address | User | Password |
+| --- | --- | --- | --- |
+| Web console | <http://localhost:3001> | `admin` | `admin` |
+| Gateway API (HTTP Basic) | <http://localhost:8080> | `admin` | `admin` |
+| Grafana (monitoring) | <http://localhost:3000> | `admin` | `admin` |
+
+The console has no accounts of its own: it forwards the entered credentials
+to the gateway on every request, so console and API share the same pair. To
+change it, set `LAKEHOUSE_USER` and `LAKEHOUSE_PASSWORD` on the `surface`
+service in `docker-compose.yaml` and restart the stack; the ingestion script
+then needs the same pair via `USER_AUTH=user:password`. Grafana additionally
+allows anonymous read-only viewing.
 
 ## Demonstration walkthrough
 
